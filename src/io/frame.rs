@@ -2,7 +2,7 @@ use std::fmt;
 use std::io;
 use std::mem;
 use std::cmp;
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref, DerefMut, Range};
 use std::sync::Arc;
 
 use futures::{Async, Poll, Stream, Sink, StartSend, AsyncSink};
@@ -129,6 +129,24 @@ impl EasyBuf {
         self.set_start(idx);
         return other
     }
+
+    /// Creates a new slice view into the underlying buffer
+    ///
+    /// This is an O(1) operation that just increases the reference count and
+    /// sets a few indexes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range is outside the EasyBuf bounds
+    pub fn slice(&self, range: Range<usize>) -> EasyBuf {
+        // TODO: implement IndexGet<Range<usize>> for EasyBuf once IndexGet lands
+        let result = EasyBuf { buf: self.buf.clone(), start: self.start + range.start, end: self.start + range.end };
+        // ensure the slice is not larger than our original EasyBuf,
+        // even if the underlying Vec would allow more
+        assert!(result.end <= self.end);
+        return result
+    }
+
 
     /// Returns a mutable reference to the underlying growable buffer of bytes.
     ///
@@ -560,4 +578,24 @@ mod tests {
         other = other.drain_to(5);
         assert_eq!(buf, other);
     }
+    #[test]
+    fn easybuf_slice() {
+        let vec: Vec<u8> = (0u8..10u8).collect();
+        let mut buf: EasyBuf = vec.into();
+        buf.split_off(9);
+        buf.drain_to(3);
+        let result = buf.slice(1..4);
+        let reference: EasyBuf = (4u8..7u8).collect::<Vec<u8>>().into();
+        assert_eq!(result, reference);
+    }
+
+    #[test]
+    #[should_panic]
+    fn easybuf_slice_out_of_bounds() {
+        let vec: Vec<u8> = (0u8..10u8).collect();
+        let mut buf: EasyBuf = vec.into();
+        buf.split_off(9);
+        buf.slice(0..10);
+    }
+
 }
